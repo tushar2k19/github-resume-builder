@@ -4,6 +4,10 @@ Turn any GitHub profile into a polished, shareable developer resume — instantl
 
 GitHub Resume Builder is a web app that fetches public GitHub data and transforms it into a visual resume: profile overview, contribution charts, language skills, and top repositories. No signup, no resume template hunting — enter a username and generate.
 
+### Live demo
+
+**[https://github-resumer.netlify.app/](https://github-resumer.netlify.app/)**
+
 ---
 
 ## Problems it solves
@@ -115,7 +119,7 @@ npm run lint     # ESLint
 ## Usage
 
 1. Open the app
-2. Type a GitHub username (e.g. `octocat`)
+2. The sample profile (`tushar2k19`) loads on open. Type another GitHub username to generate a different resume
 3. Click **Generate Resume** or press **Enter**
 4. Explore the profile, charts, skills, and repositories
 5. Use **Visit GitHub Profile** or repo links for the original sources
