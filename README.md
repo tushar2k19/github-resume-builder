@@ -1,12 +1,28 @@
 # GitHub Resume Builder
 
-Turn any GitHub profile into a polished, shareable developer resume — instantly.
+Turn a public GitHub profile into a shareable developer resume — curated work, language volume, and activity signals that a normal profile page does not explain.
 
-GitHub Resume Builder is a web app that fetches public GitHub data and transforms it into a visual resume: profile overview, contribution charts, language skills, and top repositories. No signup, no resume template hunting — enter a username and generate.
+Paste a username or profile link. The app reads public GitHub data and builds one dark charcoal sheet you can open, copy, or print. No signup.
 
 ### Live demo
 
 **[https://github-resumer.netlify.app/](https://github-resumer.netlify.app/)**
+
+Open a specific profile with a query, for example:
+
+`https://github-resumer.netlify.app/?u=gaearon`
+
+---
+
+## What changed in this version
+
+The old dark-green “GitHub mirror” (follower counts, a smoothed event line, a doughnut, star-sorted repo cards) is gone. This release is a full visual and analytics redesign:
+
+- **Warm charcoal UI** — ground `#0C0B0A`, cards one step lighter, soft off-white text. Not GitHub cool-gray panels, not a pastel paper sheet, not a rainbow of section colors.
+- **One quiet green accent** — thin lines, arcs, and beads (`#3DDC84`). Green is structure, not a language color.
+- **Analytics GitHub does not surface clearly** — languages by code volume, then-vs-now stack, ranked selected work, follow-through, active days, outside-reach, and a honest build log.
+- **Repo orrery** — one restrained 3D scene of featured projects (SVG still when WebGL is off, motion is reduced, or you print).
+- **Shareable sheet** — `?u=username`, copy link, copy Markdown, pin projects in the URL hash, print / save PDF. A screen-only Coach drawer keeps polish notes off the page you send.
 
 ---
 
@@ -14,63 +30,60 @@ GitHub Resume Builder is a web app that fetches public GitHub data and transform
 
 | Problem | How this platform helps |
 | --- | --- |
-| GitHub profiles are hard to present in interviews or applications | Converts raw profile data into a clean, resume-style layout |
-| Manually listing repos, stars, and languages is tedious | Auto-pulls top starred repos, languages, and stats from the GitHub API |
-| Contribution activity is buried in the GitHub UI | Surfaces recent activity as timeline and type-breakdown charts |
-| Building a portfolio site from scratch takes time | One search field → full interactive resume in seconds |
-| Static resumes go stale | Always reflects the latest public GitHub data when regenerated |
+| A GitHub profile is hard to send as a resume | Builds one readable sheet from public data |
+| Language badges by “number of repos” misrepresent effort | Weighs languages by bytes (with estimated leftovers labeled) |
+| Star-sorted repo lists bury real work | Ranks a small featured set by recency, substance, legibility, and community |
+| Activity charts often invent trends from sparse events | Uses beads, heatmaps, and a mosaic when there is not enough public data |
+| Static resumes go stale | Regenerates from the latest public GitHub data |
 
 ---
 
 ## What the platform offers
 
-### 1. Instant resume generation
-- Enter any public GitHub username
-- Generate with a click or by pressing **Enter**
-- Loading state and clear error handling for invalid/missing users
+### Instant generation
+- Username, `@user`, or a `github.com/...` link
+- Sample profile and clear errors (not found, organization, rate limit with reset time)
+- Progressive load: core sheet first, then language bytes and READMEs
 
-### 2. Profile summary
-- Avatar, display name, and bio
-- Location, followers / following, public repo count
-- Account age (years on GitHub)
-- Quick link: **Visit GitHub Profile**
+### Identity & selected work
+- Templated headline from facts only (no AI seniority score)
+- Up to four featured originals with a real summary (description, README excerpt, or a fallback — never “No description provided”)
+- Pin / unpin into the URL hash
 
-### 3. Activity & contribution insights
-- **Contribution timeline** — line chart of daily activity over the past month
-- **Contribution types** — doughnut chart of pushes, pull requests, issues, and create events
-- Data sourced from recent public events (up to 100)
+### Stack & signals
+- Language ribbon by volume, then-vs-now over the last 180 days
+- Last shipped, follow-through, active days, outside reach, original-work share, years with projects
+- Each metric has a plain caption and a “How?” disclosure
 
-### 4. Skills from real projects
-- Languages inferred from the user’s repositories
-- Interactive skill badges with usage counts
-- Hover animations for a more engaging feel
+### Rhythm & method
+- Event beads, weekday × hour grid (UTC), event-mix ribbon
+- Sparse accounts get a year–month repo mosaic instead of a fake curve
+- Visible build log: event window, repos analyzed, estimates, requests remaining
 
-### 5. Top repositories showcase
-- Top 10 public repos sorted by stars
-- Description, stars, forks, and primary language
-- Created / updated dates
-- Direct links to each repository on GitHub
-
-### 6. Modern, responsive experience
-- Dark, GitHub-inspired theme
-- Smooth Framer Motion animations
-- Layouts that adapt from desktop to mobile
+### Experience
+- Warm charcoal theme, Instrument Sans + JetBrains Mono
+- Framer Motion reveals with a motion toggle and `prefers-reduced-motion`
+- Responsive layout; print hides the coach and live WebGL
 
 ---
 
 ## How it works
 
 ```
-Username → GitHub API (profile + repos + events) → Process & visualize → Interactive resume
+Username → GitHub REST (profile, repos, events, languages, READMEs) → analyze → charcoal resume sheet
 ```
 
-1. **Profile** — `GET /users/{username}`
-2. **Repositories** — `GET /users/{username}/repos?sort=stars&per_page=10`
-3. **Events** — `GET /users/{username}/events?per_page=100`
-4. Events from the last month are aggregated into daily counts and event-type totals
-5. Languages are counted across returned repos and shown as skill badges
+Typical calls per generation (about 13):
 
-> Uses the public GitHub REST API. No authentication is required for typical public profiles. Heavy use may hit unauthenticated rate limits (~60 requests/hour per IP).
+1. `GET /users/{username}`
+2. `GET /users/{username}/repos?type=owner&sort=pushed&per_page=100`
+3. `GET /users/{username}/events/public?per_page=100`
+4. `GET /repos/{owner}/{repo}/languages` for the top originals
+5. `GET /repos/{owner}/{repo}/readme` for featured work
+
+Language and README payloads are cached in `localStorage` by `full_name + pushed_at`. Optional local token: set `VITE_GITHUB_TOKEN` in `.env.local` (see `.env.example`). Never commit a real token — a client bundle would expose it.
+
+> Public data only. Unauthenticated GitHub limits are low (~60 requests/hour per IP). Private and org-only work is not visible.
 
 ---
 
@@ -79,12 +92,14 @@ Username → GitHub API (profile + repos + events) → Process & visualize → I
 | Layer | Tools |
 | --- | --- |
 | UI | React 18, TypeScript, Vite |
-| Styling | Tailwind CSS, custom CSS (dark theme) |
-| Charts | Chart.js + react-chartjs-2 |
+| Styling | Tailwind CSS, charcoal design tokens |
+| 3D | three.js, @react-three/fiber, @react-three/drei |
 | Animation | Framer Motion |
+| Charts / graphics | Custom ribbons, beads, rings (Chart.js still available) |
 | Icons | Lucide React |
 | HTTP | Axios |
 | Dates | date-fns |
+| Fonts | Instrument Sans, JetBrains Mono |
 
 ---
 
@@ -104,7 +119,7 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite (usually `http://localhost:5173`).
+Open the local URL printed by Vite (often `http://localhost:5173` or the next free port).
 
 ### Other scripts
 
@@ -119,10 +134,11 @@ npm run lint     # ESLint
 ## Usage
 
 1. Open the app
-2. The sample profile (`tushar2k19`) loads on open. Type another GitHub username to generate a different resume
-3. Click **Generate Resume** or press **Enter**
-4. Explore the profile, charts, skills, and repositories
-5. Use **Visit GitHub Profile** or repo links for the original sources
+2. Enter a GitHub username or paste a profile link
+3. Click **Generate resume**, or open `?u=username`
+4. Explore identity, selected work, stack, signals, and rhythm
+5. Copy the link or Markdown, pin projects, or print / save as PDF
+6. Use **Coach** for screen-only notes (missing READMEs, rate limits) — those stay off the shared sheet
 
 ---
 
@@ -131,13 +147,18 @@ npm run lint     # ESLint
 ```
 src/
 ├── components/
-│   ├── Resume.tsx       # Search UI + GitHub API fetching
-│   ├── ResumeBox.tsx    # Resume layout, charts, skills, repos
-│   ├── Resume.css
-│   └── ResumeBox.css
-├── App.tsx              # App shell
-├── main.tsx             # Entry point
-└── index.css            # Global styles & theme tokens
+│   ├── Resume.tsx          # State owner: loadResume, share, pins
+│   ├── MotionToggle.tsx
+│   ├── stage/              # Search / landing
+│   ├── resume/             # Sheet sections, coach, toolbar
+│   └── scene/              # Repo orrery + SVG still
+├── lib/                    # GitHub client, analyze, languages, log, types
+├── ui/                     # Tokens, motion, share helpers, hooks
+├── utils/
+│   └── parseGitHubUsername.ts
+├── App.tsx
+├── main.tsx
+└── index.css
 ```
 
 ---
@@ -145,9 +166,9 @@ src/
 ## Who is this for?
 
 - **Developers** sharing a living portfolio link instead of a static PDF
-- **Job seekers** showcasing real open-source work and activity
-- **Recruiters / mentors** quickly scanning a candidate’s GitHub footprint
-- **Students** turning coursework and side projects into a visual resume
+- **Job seekers** showing what they build, with what, and how recently
+- **Recruiters / mentors** scanning a candidate’s public footprint quickly
+- **Students** turning coursework and side projects into one sendable page
 
 ---
 
@@ -158,4 +179,4 @@ This project is available under the MIT License.
 ## Acknowledgments
 
 - [GitHub REST API](https://docs.github.com/en/rest) for public profile data
-- Chart.js, Framer Motion, and the React / Vite ecosystems
+- three.js / React Three Fiber, Framer Motion, Tailwind, and the React / Vite ecosystems

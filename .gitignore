@@ -23,3 +23,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment (keep .env.example)
+.env
+.env.*
+!.env.example

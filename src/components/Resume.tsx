@@ -1,171 +1,186 @@
-import React, { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { motion } from 'framer-motion';
-import { Github, Search, Loader2 } from 'lucide-react';
-import { ResumeBox } from './ResumeBox';
-import { format } from 'date-fns';
-import './Resume.css';
+import { AnimatePresence } from 'framer-motion';
+import { ResumeError, loadResume } from '../lib/github';
+import type { ResumeModel } from '../lib/types';
+import { parseGitHubUsername } from '../utils/parseGitHubUsername';
+import {
+  buildMarkdown,
+  buildShareUrl,
+  copyText,
+  readUserParam,
+  setUserParam,
+  usePins,
+} from '../ui/share';
+import { composeWork } from '../ui/work';
+import { Coach } from './resume/Coach';
+import { Sheet } from './resume/Sheet';
+import { Toolbar } from './resume/Toolbar';
+import { SearchStage, type StageError } from './stage/SearchStage';
 
-// Define the shape of the contribution data
-type ContributionData = {
-  daily: Record<string, number>;  // Date as string, number of contributions
-  types: {
-    PushEvent: number;
-    PullRequestEvent: number;
-    IssuesEvent: number;
-    CreateEvent: number;
-  };
-};
-type GitHubEvent = {
-  created_at: string;
-  type: 'PushEvent' | 'PullRequestEvent' | 'IssuesEvent' | 'CreateEvent'; // Adjust based on the events you're processing
-  [key: string]: any;  // Add any other properties from the event that may be needed
-};
+const SAMPLE_USERNAME = 'tushar2k19';
 
+/** State owner: input, loading, errors, the model, share actions. Calls `loadResume`. */
 export function Resume() {
-  const [username, setUsername] = useState('');
-  const [userData, setUserData] = useState(null);
-  const [repositories, setRepositories] = useState([]);
-  const [contributions, setContributions] = useState<ContributionData | null>(null); // State can be null or ContributionData
+  const [input, setInput] = useState(() => readUserParam() ?? '');
+  const [model, setModel] = useState<ResumeModel | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<StageError | null>(null);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const { pins, toggle } = usePins();
+  const abortRef = useRef<AbortController | null>(null);
+  const runRef = useRef(0);
+  const autoLoaded = useRef(false);
 
-  const fetchGitHubData = async () => {
-    if (!username.trim()) {
-      setError('Please enter a username');
+  const load = useCallback(async (raw: string, history: 'push' | 'replace' | 'none') => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setError({ kind: 'invalid-username', message: 'Enter a GitHub username or profile link.', resetAt: null });
       return;
     }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const run = ++runRef.current;
+    const login = parseGitHubUsername(trimmed) ?? trimmed;
 
     setLoading(true);
-    setError('');
+    setError(null);
+    setCoachOpen(false);
+    let urlSet = false;
+    const syncUrl = (name: string): void => {
+      if (urlSet) return;
+      urlSet = true;
+      if (history === 'none') return;
+      const same = readUserParam()?.toLowerCase() === name.toLowerCase();
+      setUserParam(name, same ? 'replace' : history);
+    };
+
     try {
-      const [userResponse, repoResponse, eventsResponse] = await Promise.all([
-        axios.get(`https://api.github.com/users/${username}`),
-        axios.get(`https://api.github.com/users/${username}/repos?sort=stars&per_page=10`),
-        axios.get(`https://api.github.com/users/${username}/events?per_page=100`)
-      ]);
-
-      // Process contribution data
-      const contributionData = processContributions(eventsResponse.data);
-
-      setUserData(userResponse.data);
-      setRepositories(repoResponse.data);
-      setContributions(contributionData);
+      const final = await loadResume(login, {
+        signal: controller.signal,
+        onUpdate: (core) => {
+          if (runRef.current !== run) return;
+          setModel(core);
+          setInput(core.username);
+          setLoading(false);
+          syncUrl(core.username);
+        },
+      });
+      if (runRef.current !== run) return;
+      setModel(final);
+      setInput(final.username);
+      setLoading(false);
+      syncUrl(final.username);
     } catch (err) {
-      setError('User not found. Please check the username.');
-      setUserData(null);
-      setRepositories([]);
-      setContributions(null);
-    }
-    setLoading(false);
-  };
-
-const processContributions = (events: GitHubEvent[]) => {
-  const lastMonth = new Date();
-  lastMonth.setMonth(lastMonth.getMonth() - 1);
-
-  const contributionsByDay: Record<string, number> = {};
-  const contributionTypes = {
-    PushEvent: 0,
-    PullRequestEvent: 0,
-    IssuesEvent: 0,
-    CreateEvent: 0,
-  };
-
-  events.forEach((event) => {
-    const date = new Date(event.created_at);
-    if (date > lastMonth) {
-      const dateKey = format(date, 'yyyy-MM-dd');
-      contributionsByDay[dateKey] = (contributionsByDay[dateKey] || 0) + 1;
-      
-      if (contributionTypes.hasOwnProperty(event.type)) {
-        contributionTypes[event.type]++;
+      if (axios.isCancel(err) || runRef.current !== run) return;
+      setLoading(false);
+      if (err instanceof ResumeError) {
+        setError({ kind: err.kind, message: err.message, resetAt: err.resetAt });
+      } else {
+        setError({ kind: 'unknown', message: err instanceof Error ? err.message : 'Something went wrong while building the sheet.', resetAt: null });
       }
     }
-  });
+  }, []);
 
-  return {
-    daily: contributionsByDay,
-    types: contributionTypes,
-  };
-};
+  const goHome = useCallback(() => {
+    abortRef.current?.abort();
+    runRef.current++;
+    setModel(null);
+    setLoading(false);
+    setError(null);
+    setCoachOpen(false);
+    setUserParam(null, 'push');
+  }, []);
 
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      fetchGitHubData();
+  // ?u=username auto-loads once; back/forward follows the URL.
+  useEffect(() => {
+    if (!autoLoaded.current) {
+      autoLoaded.current = true;
+      const u = readUserParam();
+      if (u) void load(u, 'replace');
     }
-  };
+    const onPop = (): void => {
+      const u = readUserParam();
+      if (u) void load(u, 'none');
+      else {
+        abortRef.current?.abort();
+        runRef.current++;
+        setModel(null);
+        setLoading(false);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [load]);
+
+  useEffect(() => {
+    document.title = model ? `${model.profile.name ?? model.profile.login} · GitHub resume` : 'GitHub Resume';
+  }, [model]);
+
+  const activePins = useMemo(
+    () => (model ? pins.filter((p) => model.repos.some((r) => r.name === p)) : []),
+    [model, pins],
+  );
+
+  const copyLink = useCallback(
+    () => (model ? copyText(buildShareUrl(model.username, activePins)) : Promise.resolve(false)),
+    [model, activePins],
+  );
+  const copyMarkdown = useCallback(() => {
+    if (!model) return Promise.resolve(false);
+    const { cards } = composeWork(model, activePins);
+    const md = buildMarkdown(
+      model,
+      cards.map((c) => ({
+        name: c.repo.name,
+        htmlUrl: c.repo.htmlUrl,
+        summary: c.summary,
+        language: c.repo.language,
+        sizeKb: c.repo.sizeKb,
+      })),
+      buildShareUrl(model.username, activePins),
+    );
+    return copyText(md);
+  }, [model, activePins]);
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="resume-container"
-    >
-      <motion.div 
-        className="header"
-        initial={{ y: -20 }}
-        animate={{ y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Github size={40} className="github-icon" />
-        <h1>GitHub Resume Builder</h1>
-      </motion.div>
+    <div className="relative min-h-screen bg-ground text-fg">
+      <main className="relative mx-auto w-full max-w-page px-3 py-5 sm:px-6 sm:py-8 print:max-w-none print:p-0">
+        {model && (
+          <>
+            <Toolbar
+              onBack={goHome}
+              onCopyLink={copyLink}
+              onCopyMarkdown={copyMarkdown}
+              onPrint={() => window.print()}
+              onCoach={() => setCoachOpen(true)}
+              coachCount={model.coach.length}
+            />
+            <Sheet model={model} pins={activePins} onTogglePin={toggle} />
+          </>
+        )}
+      </main>
 
-      <motion.div 
-        className="search-container"
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-      >
-        <div className="input-wrapper">
-          <Search className="search-icon" size={20} />
-          <input
-            type="text"
-            placeholder="Enter GitHub username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            onKeyPress={handleKeyPress}
-            className="search-input"
+      <AnimatePresence>
+        {!model && (
+          <SearchStage
+            key="stage"
+            value={input}
+            onChange={setInput}
+            onSubmit={() => void load(input, 'push')}
+            onPick={(name) => {
+              setInput(name);
+              void load(name, 'push');
+            }}
+            loading={loading}
+            error={error}
+            sample={SAMPLE_USERNAME}
           />
-        </div>
-        <button 
-          onClick={fetchGitHubData}
-          disabled={loading}
-          className="generate-button"
-        >
-          {loading ? (
-            <Loader2 className="animate-spin" size={20} />
-          ) : (
-            'Generate Resume'
-          )}
-        </button>
-      </motion.div>
+        )}
+      </AnimatePresence>
 
-      {error && (
-        <motion.div 
-          className="error-message"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          {error}
-        </motion.div>
-      )}
-
-      {userData && (
-        <motion.div
-          initial={{ y: 50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-           transition={{ delay: window.innerWidth < 768 ? 0.1 : 0.3 }}
-        >
-          <ResumeBox
-            userData={userData}
-            repositories={repositories}
-            contributions={contributions}
-          />
-        </motion.div>
-      )}
-    </motion.div>
+      {model && <Coach model={model} open={coachOpen} onClose={() => setCoachOpen(false)} />}
+    </div>
   );
 }
